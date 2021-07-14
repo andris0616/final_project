@@ -25,17 +25,21 @@ if __name__ == '__main__':
 	#my_odrive.straight_position_control(desired_pos)
 	
 	
-	desired_x = 0.2
+	desired_x = 1
 	desired_y = 0.0
 	
 	desired_pos_x_list = [1.0, 1.0, 0.0, 0.0] #[0.25, 0.5, 0.50, 0.5, 0,25, 0.0, 0.00, 0.0]
 	desired_pos_y_list = [0.0, 0.7, 0.7, 0.0] #[0.00, 0.0, 0.25, 0.5, 0,50, 0.5, 0.25, 0.0]
+	desired_angle_list = [90/180*np.pi, np.pi, 270/180*np.pi, 2*np.pi]
 	
-	for i in range(len(desired_pos_x_list)):
+	"""for i in range(len(desired_pos_x_list)):
 		my_odrive.diff_drive_control(desired_pos_x_list[i], desired_pos_y_list[i])
-		time.sleep(2)
+		#my_odrive.heading_angle_control(desired_angle_list[i])
+		time.sleep(2)"""
 	
 	#my_odrive.diff_drive_control(desired_x, desired_y)
+	
+	my_odrive.rough_terrain_control(desired_x, desired_y)
 	
 	########
 	#my_odrive.pos_control(1.0)
@@ -54,6 +58,8 @@ if __name__ == '__main__':
 	desired_angle = 360
 	
 	#my_odrive.angular_pos_control(desired_angle)
+	
+	#my_odrive.heading_angle_control(40/180*np.pi)
 
 	print(my_odrive.getEncoder0())
 	print(my_odrive.getEncoder1())
