@@ -126,6 +126,8 @@ class Odrive_class(object):
 		self.pub_L_enc = rospy.Publisher('TL_leg_L_enc', Float32, queue_size = 10)
 		self.pub_des_vel_L = rospy.Publisher('TL_leg_des_vel_L', Float32, queue_size = 10)
 		self.pub_des_vel_R = rospy.Publisher('TL_leg_des_vel_R', Float32, queue_size = 10)
+		self.cont_mode_L = rospy.Publisher('TL_leg_cont_mode_L', Float32, queue_size = 10)
+		self.cont_mode_R = rospy.Publisher('TL_leg_cont_mode_R', Float32, queue_size = 10)
 		
 		
 		
@@ -148,11 +150,19 @@ class Odrive_class(object):
 
 		#self.my_odrive.axis0.requested_state = AXIS_STATE_IDLE
 		#self.my_odrive.axis1.requested_state = AXIS_STATE_IDLE
+		
+		#self.my_odrive.axis0.requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
+		#self.my_odrive.axis1.requested_state = AXIS_STATE_CLOSED_LOOP_CONTROL
 
 
 		
 		print("odrive is ready to use")
 		
+	
+	""" Put odrive to free rotate """
+	def setIdle(self):
+		self.my_odrive.axis0.requested_state = AXIS_STATE_IDLE
+		self.my_odrive.axis1.requested_state = AXIS_STATE_IDLE
 		
 	"""To calibrate the motors"""
 	def calibrate(self):
@@ -653,7 +663,7 @@ class Odrive_class(object):
 		
 		
 		# starting speed
-		vel = 0.5
+		vel = 0.4
 		
 		self.setVel0(vel)
 		self.setVel1(vel)
@@ -661,6 +671,11 @@ class Odrive_class(object):
 		# initial distance
 		dx = desired_x - self.current_pos.x
 		dy = desired_y - self.current_pos.y
+		
+		time_prev = rospy.get_time()
+		control_mode_L = 1
+		control_mode_R = 1
+		
 		
 		while epsilon < np.sqrt((dx)**2 + (dy)**2) and not rospy.is_shutdown():
 			
@@ -676,7 +691,7 @@ class Odrive_class(object):
 			
 			fi_deg = self.fi/np.pi*180
 
-			print("calculated heading angles: {}".format(fi_deg))
+			#print("calculated heading angles: {}".format(fi_deg))
 			
 			
 			# current position calculated from the hall data 
@@ -687,8 +702,8 @@ class Odrive_class(object):
 			self.pos_x_list.append(self.current_pos.x)
 			self.pos_y_list.append(self.current_pos.y)
 			
-			print("current x: {} m".format(self.current_pos.x))
-			print("current y: {} m".format(self.current_pos.y))
+			#print("current x: {} m".format(self.current_pos.x))
+			#print("current y: {} m".format(self.current_pos.y))
 			
 			# current position difference
 			dx = desired_x - self.current_pos.x
@@ -698,13 +713,17 @@ class Odrive_class(object):
 			distx = self.current_pos.x - x_prev
 			disty = self.current_pos.y - y_prev
 			
+			time_now = rospy.get_time()
+			d_time = time_now - time_prev
+			time_prev = time_now
+			
 			# leg velocity calculation
-			self.current_vel.x = distx / dt
-			self.current_vel.y = disty / dt
+			self.current_vel.x = distx / d_time
+			self.current_vel.y = disty / d_time
 			
 			
-			print("dx: {} m".format(dx))
-			print("dy: {} m".format(dy))
+			#print("dx: {} m".format(dx))
+			#print("dy: {} m".format(dy))
 			print("distance: {}".format(np.sqrt(dx**2+dy**2)))
 
 			# -180/180 orientation fixing
@@ -714,11 +733,11 @@ class Odrive_class(object):
 
 			# error
 			e_angle = desired_angle - self.fi
-			ed_angle = (e_angle - e_prev_angle) / dt
+			ed_angle = (e_angle - e_prev_angle) / d_time
 			ei_angle = ei_angle + e_angle*dt
 			
-			print("desired angle {}".format(math.atan2(dy, dx)))
-			print("current angle {}".format(self.fi))
+			#print("desired angle {}".format(math.atan2(dy, dx)))
+			#print("current angle {}".format(self.fi))
 			
 			# PID equation
 			fi_dot = Kp_a*e_angle + Ki_a* ei_angle + Kd_a * ed_angle
@@ -732,8 +751,8 @@ class Odrive_class(object):
 			#print("left wheel velocity: {}".format(vel1))
 
 			# limit the input velocities
-			vel0 = max(min(vel0, 0.6), -0.6)
-			vel1 = max(min(vel1, 0.6), -0.6)
+			vel0 = max(min(vel0, 0.5), -0.5)
+			vel1 = max(min(vel1, 0.5), -0.5)
 
 
 			if np.sqrt((dx)**2 + (dy)**2) < 0.3:
@@ -751,8 +770,8 @@ class Odrive_class(object):
 			#vel0 = max(min(vel0,0.4),-0.4)
 			#vel1 = max(min(vel1,0.4),-0.4)
 			
-			print("right wheel velocity: {}".format(vel0))
-			print("left wheel velocity: {}".format(vel1))
+			#print("right wheel velocity: {}".format(vel0))
+			#print("left wheel velocity: {}".format(vel1))
 			
 			# set the new input velocities
 			self.setVel0(vel0)
@@ -775,10 +794,13 @@ class Odrive_class(object):
 			self.pub_torque_L.publish(self.getTorque1())
 			self.pub_vel_R.publish(self.getVel0())
 			self.pub_vel_L.publish(self.getVel1())
-			self.pub_current_set_L.publis(self.getCurrentSetP1())
-			self.pub_current_set_R.publis(self.getCurrentSetP0())
+			self.pub_des_vel_L.publish(vel1)
+			self.pub_des_vel_R.publish(vel0)
+			self.pub_current_set_L.publish(self.getCurrentSetP1())
+			self.pub_current_set_R.publish(self.getCurrentSetP0())
+			self.cont_mode_L.publish(control_mode_L)
+			self.cont_mode_R.publish(control_mode_R)
   			
-			time.sleep(dt)
 			
 		
 		# STOP
@@ -794,8 +816,10 @@ class Odrive_class(object):
 
 		#print("pos from enc: {}".format(enc0 * self.circumference))
 		
+	
+	#########################################
 	"""
-	Rough terrain 2D position control
+	Rough terrain 2D position control without rosTime
 	
 	@params:
 		desired_x: desired x position in [m]
@@ -934,6 +958,370 @@ class Odrive_class(object):
 			
 			wheelL_vel = self.getVel1()	
 			wheelL_acc = (wheelL_vel - wheelL_vel_prev) / dt
+			wheelL_vel_prev = wheelL_vel
+			torqueL = self.getTorque1()
+				
+			
+			# check whether there is a bumper or not
+			if abs(torqueL) > 60 and dL == 0.0:
+				bumper_L = True
+				
+			if abs(torqueR) > 60 and dR == 0.0:
+				bumper_R = True
+				
+			if bumper_L == False and bumper_R == False:
+				# set the new input velocities
+				self.setVel0(vel0)
+				self.setVel1(vel1)
+				control_mode_R = 1
+				control_mode_L = 1
+				
+			else:
+				if bumper_R == True and bumper_L == True:
+					print("TORQUE CONTROL R")
+					# if right wheel gets over the bumper then stop
+					if (abs(wheelR_acc) > 4.0 and abs(self.getVel0()) > 0.5) or breakingR:
+						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						breakingR = True
+						
+						self.setTorque_control_mode0()
+						self.setTorque0(-self.getTorque0())
+						print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 2
+						
+						if self.getVel0() < 0.1:	
+							breakingR = False
+							self.setVelocity_control_mode0()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							bumper_R = False
+							
+					# if lefty wheel gets over the bumper then stop
+					if (abs(wheelL_acc) > 4.0 and abs(self.getVel1()) > 0.5) or breakingL:
+						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						breakingL = True
+						
+						self.setTorque_control_mode1()
+						self.setTorque1(-self.getTorque1())
+						print("BREAK")
+						control_mode_R = 2
+						control_mode_L = 3
+						
+						if self.getVel1() < 0.1:	
+							breakingL = False
+							self.setVelocity_control_mode1()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_L = False
+							
+					else:	
+						self.my_odrive.axis0.controller.config.vel_gain += 10
+						self.my_odrive.axis1.controller.config.vel_gain += 10
+						print("vel_gain")
+						print(self.my_odrive.axis0.controller.config.vel_gain)
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = 0
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = 0
+						
+						# set the new input velocities
+						vel0 = max_vel
+						vel1 = max_vel
+						
+						self.setVel0(vel0) # vel0
+						self.setVel1(vel1) #vel1
+						control_mode_R = 2
+						control_mode_L = 2
+					
+				#-----------------------------------------------------------------------
+				
+				elif bumper_R == True:
+					print("bumper R")
+					# if right wheel gets over the bumper then stop
+					if (abs(wheelR_acc) > 4.0 and abs(self.getVel0()) > 0.5) or breakingR:
+						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						breakingR = True
+						
+						self.setTorque_control_mode0()
+						self.setTorque0(-self.getTorque0())
+						print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 1
+						
+						if self.getVel0() < 0.1:	
+							breakingR = False
+							self.setVelocity_control_mode0()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_R = False
+						
+					else:	
+						self.my_odrive.axis0.controller.config.vel_gain += 10
+						print("vel_gain")
+						print(self.my_odrive.axis0.controller.config.vel_gain)
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = 0
+						
+						# set the new input velocities
+						vel0 = max_vel
+						vel1 = 0
+						
+						self.setVel0(vel0) # vel0
+						self.setVel1(vel1) #vel1
+						control_mode_R = 2
+						control_mode_L = 1
+							
+				#------------------------------------------------------------------	
+
+				elif bumper_L == True:
+					print("bumper L")
+					# if right wheel gets over the bumper then stop
+					if (abs(wheelL_acc) > 4.0 and abs(self.getVel1()) > 0.5) or breakingL:
+						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						breakingL = True
+						
+						self.setTorque_control_mode1()
+						self.setTorque1(-self.getTorque1())
+						print("BREAK")
+						control_mode_R = 1
+						control_mode_L = 3
+						
+						if self.getVel1() < 0.1:	
+							breakingL = False
+							self.setVelocity_control_mode1()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_L = False
+							#finish = True
+					else:	
+						self.my_odrive.axis1.controller.config.vel_gain += 10
+						print("vel_gain")
+						print(self.my_odrive.axis1.controller.config.vel_gain)
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = 0
+						
+						# set the new input velocities
+						vel1 = max_vel
+						vel0 = 0
+						
+						self.setVel0(vel0) # vel0
+						self.setVel1(vel1) #vel1
+						control_mode_R = 1
+						control_mode_L = 2
+				
+			
+			#############################################3
+				
+			
+			
+			# set the new input velocities
+			#self.setVel0(vel0)
+			#self.setVel1(vel1)
+			
+			#Update
+			e_prev_angle = e_angle
+			#e_prev_pos = e_pos
+			enc0_prev = enc0
+			enc1_prev = enc1
+			x_prev = self.current_pos.x
+			y_prev = self.current_pos.y
+			
+			# publish data
+			self.pub_pos.publish(self.current_pos)
+			self.pub_vel.publish(self.current_vel)
+			self.pub_ha.publish(self.fi)
+			self.pub_des_ha.publish(math.atan2(dy, dx))
+			self.pub_torque_R.publish(self.getTorque0()/self.torque_constant)
+			self.pub_torque_L.publish(self.getTorque1()/self.torque_constant)
+			self.pub_vel_R.publish(self.getVel0())
+			self.pub_vel_L.publish(self.getVel1())
+			self.pub_acc_R.publish(wheelR_acc)
+			self.pub_acc_L.publish(wheelL_acc)
+			self.pub_R_enc.publish(enc0)
+			self.pub_L_enc.publish(enc1)
+			self.pub_des_vel_L.publish(vel1)
+			self.pub_des_vel_R.publish(vel0)
+			self.pub_current_set_L.publish(self.getCurrentSetP1())
+			self.pub_current_set_R.publish(self.getCurrentSetP0())
+			self.cont_mode_L.publish(control_mode_L)
+			self.cont_mode_R.publish(control_mode_R)
+  			
+			time.sleep(dt)
+			
+		
+		# STOP
+		self.setVel0(0)
+		self.setVel1(0)
+		
+		print("FINISHED")
+		print("current x pos: {}".format(self.current_pos.x))
+		print("current y pos: {}".format(self.current_pos.y))
+	
+	#####################################
+	
+		
+	"""
+	Rough terrain 2D position control
+	
+	@params:
+		desired_x: desired x position in [m]
+		desired_y: desired y position in [m]
+	"""
+	def rough_terrain_control_2(self, desired_x, desired_y):
+		
+		# set control mode to velocity control
+		self.setVelocity_control_mode()
+		
+		# PID params for the heading angle control
+		Kp_a = 7 #15 #7 10
+		Ki_a = 1   #1
+		Kd_a = 5  #10 #5.0 7
+		
+		epsilon = 0.01
+		
+		
+		enc0_prev = self.getEncoder0()
+		enc1_prev = self.getEncoder1()
+		
+		e_prev_angle = 0
+		ei_angle = 0
+		dt = 0.01
+		
+		# for velocity approximation
+		x_prev = self.current_pos.x
+		y_prev = self.current_pos.y
+		
+		
+		# starting speed
+		avg_vel = 0.3
+		max_vel = 0.4
+		vel_thresh = 0.5
+		# acc threshold for bumper stuff
+		acc_treshold = 4.0
+		travel_threshold = 0.15
+		
+		self.setVel0(avg_vel)
+		self.setVel1(avg_vel)
+		
+		# initial distance
+		dx = desired_x - self.current_pos.x
+		dy = desired_y - self.current_pos.y
+		
+		bumper_L = False
+		bumper_R = False
+		wheelR_vel_prev = 0
+		wheelL_vel_prev = 0
+		torque0 = 50
+		torque1 = 50
+		breakingR = False
+		breakingL = False
+		
+		# control mode of the wheels
+		control_mode_R = 1
+		control_mode_L = 1
+		
+		# distance travelled by the wheels since the bumper is detected
+		d_trav_L = 0
+		d_trav_R = 0
+		
+		finish = False
+		
+		time_prev = rospy.get_time()
+		
+		while epsilon < np.sqrt((dx)**2 + (dy)**2) and not rospy.is_shutdown() and not finish:
+			
+			enc0 = self.getEncoder0()
+			enc1 = self.getEncoder1()
+			# distance the left wheel travelled
+			dR = (enc0 - enc0_prev) * self.circumference #/ self.ticks
+			# distance the right wheel travelled
+			dL = (enc1 - enc1_prev) * self.circumference #/ self.ticks
+			
+			# angle of the leg from the hall sensors (this should be changed later to the leg angle ecoder data I guess)
+			self.fi += 1/self.wheel_dist * (dR - dL)
+			
+			fi_deg = self.fi/np.pi*180
+
+			#print("calculated heading angles: {}".format(fi_deg))
+			
+			
+			# current position calculated from the hall data 
+			self.current_pos.x = self.current_pos.x + 1/2 * (dR + dL) * np.cos(self.fi)
+			self.current_pos.y = self.current_pos.y + 1/2 * (dR + dL) * np.sin(self.fi)
+			
+			#store pos
+			self.pos_x_list.append(self.current_pos.x)
+			self.pos_y_list.append(self.current_pos.y)
+			
+			#print("current x: {} m".format(self.current_pos.x))
+			#print("current y: {} m".format(self.current_pos.y))
+			
+			# current position difference
+			dx = desired_x - self.current_pos.x
+			dy = desired_y - self.current_pos.y
+			
+			#distance travelled ion this time step
+			distx = self.current_pos.x - x_prev
+			disty = self.current_pos.y - y_prev
+			
+			time_now = rospy.get_time()
+			d_time = time_now - time_prev
+			time_prev = time_now
+			# leg velocity calculation
+			self.current_vel.x = distx / d_time #dt
+			self.current_vel.y = disty / d_time #dt
+			
+			
+			#print("dx: {} m".format(dx))
+			#print("dy: {} m".format(dy))
+			print("distance: {}".format(np.sqrt(dx**2+dy**2)))
+
+			# -180/180 orientation fixing
+			desired_angle = math.atan2(dy, dx)
+			if abs(desired_angle + 2 * np.pi - self.fi) < abs(desired_angle - self.fi):
+				desired_angle += 2 * np.pi
+
+			# error
+			e_angle = desired_angle - self.fi
+			ed_angle = (e_angle - e_prev_angle) / d_time #dt
+			ei_angle = ei_angle + e_angle*dt
+			
+			#print("desired angle {}".format(math.atan2(dy, dx)))
+			#print("current angle {}".format(self.fi))
+			
+			# PID equation
+			fi_dot = Kp_a*e_angle + Ki_a* ei_angle + Kd_a * ed_angle
+			
+			
+			# next input velocity calculation
+			vel0 = avg_vel + 1/2 * self.wheel_dist * fi_dot
+			vel1 = avg_vel - 1/2 * self.wheel_dist * fi_dot
+			     
+                  
+			# limit the input velocities
+			vel0 = max(min(vel0, max_vel), -max_vel)
+			vel1 = max(min(vel1, max_vel), -max_vel)
+
+
+			if np.sqrt((dx)**2 + (dy)**2) < 0.3:
+				vel0 = vel0 * 0.5
+				vel1 = vel1 * 0.5
+			
+			wheelR_vel = self.getVel0()	
+			wheelR_acc = (wheelR_vel - wheelR_vel_prev) / d_time #dt
+			wheelR_vel_prev = wheelR_vel
+			torqueR = self.getTorque0()
+			
+			wheelL_vel = self.getVel1()	
+			wheelL_acc = (wheelL_vel - wheelL_vel_prev) / d_time #dt
 			wheelL_vel_prev = wheelL_vel
 			torqueL = self.getTorque1()
 				
@@ -1143,46 +1531,61 @@ class Odrive_class(object):
 			# check whether there is a bumper or not
 			if abs(torqueL) > 60 and dL == 0.0:
 				bumper_L = True
+				enc_start_L = self.getEncoder1()
 				
 			if abs(torqueR) > 60 and dR == 0.0:
 				bumper_R = True
+				enc_start_R = self.getEncoder0()
 				
 			if bumper_L == False and bumper_R == False:
 				# set the new input velocities
 				self.setVel0(vel0)
 				self.setVel1(vel1)
+				control_mode_R = 1
+				control_mode_L = 1
 			else:
 				if bumper_R == True and bumper_L == True:
-					print("TORQUE CONTROL R")
+					#print("TORQUE CONTROL R")
+					# calculate travelled distance by the wheel
+					d_trav_R = (self.getEncoder0() - enc_start_R) * self.circumference
 					# if right wheel gets over the bumper then stop
-					if (abs(wheelR_acc) > 4.0 and abs(self.getVel0()) > 0.5) or breakingR:
-						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
-						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+					#if (abs(wheelR_acc) > acc_treshold and abs(self.getVel0()) > vel_thresh) or breakingR or abs(d_trav_R) > travel_threshold :
+					if breakingR or abs(d_trav_R) > travel_threshold:
 						breakingR = True
 						
 						self.setTorque_control_mode0()
 						self.setTorque0(-self.getTorque0())
-						print("BREAK")
+						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						#print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 2
 						
-						if self.getVel0() < 0.1:	
+						if self.getVel0() < 0.3:	
 							breakingR = False
 							self.setVelocity_control_mode0()
 							vel0 = 0
 							vel1 = 0
 							self.setVel0(vel0)
 							bumper_R = False
-							
+					
+					# calculate travelled distance by the wheel
+					d_trav_L = (self.getEncoder1() - enc_start_L) * self.circumference	
 					# if lefty wheel gets over the bumper then stop
-					if (abs(wheelL_acc) > 4.0 and abs(self.getVel1()) > 0.5) or breakingL:
-						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
-						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+					#if (abs(wheelL_acc) > acc_treshold and abs(self.getVel1()) > vel_thresh) or breakingL or abs(d_trav_R) > travel_threshold:
+					if breakingL or abs(d_trav_R) > travel_threshold:
+						
 						breakingL = True
 						
 						self.setTorque_control_mode1()
 						self.setTorque1(-self.getTorque1())
-						print("BREAK")
+						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						#print("BREAK")
+						control_mode_R = 2
+						control_mode_L = 3
 						
-						if self.getVel1() < 0.1:	
+						if self.getVel1() < 0.3:	
 							breakingL = False
 							self.setVelocity_control_mode1()
 							vel0 = 0
@@ -1194,8 +1597,8 @@ class Odrive_class(object):
 					else:	
 						self.my_odrive.axis0.controller.config.vel_gain += 10
 						self.my_odrive.axis1.controller.config.vel_gain += 10
-						print("vel_gain")
-						print(self.my_odrive.axis0.controller.config.vel_gain)
+						#print("vel_gain")
+						#print(self.my_odrive.axis0.controller.config.vel_gain)
 						self.my_odrive.axis0.controller.config.vel_integrator_gain = 0
 						self.my_odrive.axis1.controller.config.vel_integrator_gain = 0
 						
@@ -1205,22 +1608,32 @@ class Odrive_class(object):
 						
 						self.setVel0(vel0) # vel0
 						self.setVel1(vel1) #vel1
+						control_mode_R = 2
+						control_mode_L = 2
 					
 				#-----------------------------------------------------------------------
 				
 				elif bumper_R == True:
-					print("bumper R")
+					#print("bumper R")
+					# calculate travelled distance by the wheel
+					d_trav_R = (self.getEncoder0() - enc_start_R) * self.circumference
 					# if right wheel gets over the bumper then stop
-					if (abs(wheelR_acc) > 4.0 and abs(self.getVel0()) > 0.5) or breakingR:
-						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
-						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+					
+					#if (abs(wheelR_acc) > acc_treshold and abs(self.getVel0()) > vel_thresh) or breakingR or abs(d_trav_R) > travel_threshold:
+					if abs(d_trav_R) > travel_threshold:
+						
 						breakingR = True
 						
 						self.setTorque_control_mode0()
 						self.setTorque0(-self.getTorque0())
-						print("BREAK")
 						
-						if self.getVel0() < 0.1:	
+						self.my_odrive.axis0.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis0.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						#print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 1
+						
+						if self.getVel0() < 0.3:	
 							breakingR = False
 							self.setVelocity_control_mode0()
 							vel0 = 0
@@ -1231,32 +1644,39 @@ class Odrive_class(object):
 						
 					else:	
 						self.my_odrive.axis0.controller.config.vel_gain += 10
-						print("vel_gain")
-						print(self.my_odrive.axis0.controller.config.vel_gain)
+						#print("vel_gain")
+						#print(self.my_odrive.axis0.controller.config.vel_gain)
 						self.my_odrive.axis0.controller.config.vel_integrator_gain = 0
 						
 						# set the new input velocities
 						vel0 = max_vel
-						vel1 = 0
+						#vel1 = 0
 						
 						self.setVel0(vel0) # vel0
 						self.setVel1(vel1) #vel1
+						control_mode_R = 2
+						control_mode_L = 1
 							
 				#------------------------------------------------------------------	
 
 				elif bumper_L == True:
-					print("bumper L")
+					#print("bumper L")
+					# calculate travelled distance by the wheel
+					d_trav_L = (self.getEncoder1() - enc_start_L) * self.circumference	
 					# if right wheel gets over the bumper then stop
-					if (abs(wheelL_acc) > 4.0 and abs(self.getVel1()) > 0.5) or breakingL:
-						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
-						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+					#if (abs(wheelL_acc) > acc_treshold and abs(self.getVel1()) > vel_thresh) or breakingL or abs(d_trav_L) > travel_threshold:
+					if breakingL or abs(d_trav_L) > travel_threshold:
 						breakingL = True
 						
 						self.setTorque_control_mode1()
 						self.setTorque1(-self.getTorque1())
-						print("BREAK")
+						self.my_odrive.axis1.controller.config.vel_gain = self.vel_gain
+						self.my_odrive.axis1.controller.config.vel_integrator_gain = self.vel_integrator_gain
+						#print("BREAK")
+						control_mode_R = 1
+						control_mode_L = 3
 						
-						if self.getVel1() < 0.1:	
+						if self.getVel1() < 0.3:	
 							breakingL = False
 							self.setVelocity_control_mode1()
 							vel0 = 0
@@ -1267,16 +1687,18 @@ class Odrive_class(object):
 							#finish = True
 					else:	
 						self.my_odrive.axis1.controller.config.vel_gain += 10
-						print("vel_gain")
-						print(self.my_odrive.axis1.controller.config.vel_gain)
+						#print("vel_gain")
+						#print(self.my_odrive.axis1.controller.config.vel_gain)
 						self.my_odrive.axis1.controller.config.vel_integrator_gain = 0
 						
 						# set the new input velocities
 						vel1 = max_vel
-						vel0 = 0
+						#vel0 = 0
 						
 						self.setVel0(vel0) # vel0
 						self.setVel1(vel1) #vel1
+						control_mode_L = 2
+						control_mode_R = 1
 				
 			
 			#############################################3
@@ -1312,8 +1734,10 @@ class Odrive_class(object):
 			self.pub_des_vel_R.publish(vel0)
 			self.pub_current_set_L.publish(self.getCurrentSetP1())
 			self.pub_current_set_R.publish(self.getCurrentSetP0())
+			self.cont_mode_L.publish(control_mode_L)
+			self.cont_mode_R.publish(control_mode_R)
   			
-			time.sleep(dt)
+			#time.sleep(dt)
 			
 		
 		# STOP
@@ -1549,6 +1973,403 @@ class Odrive_class(object):
 		self.setVel1(0)
 		
 		print("FINISHED")
+		
+		
+		
+	"""
+	Rough terrain 2D hibrid position control
+	
+	@params:
+		desired_x: desired x position in [m]
+		desired_y: desired y position in [m]
+	"""
+	def rough_terrain_hibrid_control(self, desired_x, desired_y):
+		
+		# set control mode to velocity control
+		self.setVelocity_control_mode()
+		
+		# PID params for the heading angle control
+		Kp_a = 7 #15 #7 10
+		Ki_a = 1   #1
+		Kd_a = 5  #10 #5.0 7
+		
+		epsilon = 0.01
+		
+		
+		enc0_prev = self.getEncoder0()
+		enc1_prev = self.getEncoder1()
+		
+		e_prev_angle = 0
+		ei_angle = 0
+		dt = 0.01
+		
+		# for velocity approximation
+		x_prev = self.current_pos.x
+		y_prev = self.current_pos.y
+		
+		
+		# starting speed
+		avg_vel = 0.3
+		max_vel = 0.4
+		vel_thresh = 0.5
+		# acc threshold for bumper stuff
+		acc_treshold = 4.0
+		travel_threshold = 0.15
+		
+		self.setVel0(avg_vel)
+		self.setVel1(avg_vel)
+		
+		# initial distance
+		dx = desired_x - self.current_pos.x
+		dy = desired_y - self.current_pos.y
+		
+		bumper_L = False
+		bumper_R = False
+		wheelR_vel_prev = 0
+		wheelL_vel_prev = 0
+		torque0 = 50
+		torque1 = 50
+		breakingR = False
+		breakingL = False
+		
+		# control mode of the wheels
+		control_mode_R = 1
+		control_mode_L = 1
+		
+		# distance travelled by the wheels since the bumper is detected
+		d_trav_L = 0
+		d_trav_R = 0
+		
+		finish = False
+		
+		time_prev = rospy.get_time()
+		
+		while epsilon < np.sqrt((dx)**2 + (dy)**2) and not rospy.is_shutdown() and not finish:
+			
+			enc0 = self.getEncoder0()
+			enc1 = self.getEncoder1()
+			# distance the left wheel travelled
+			dR = (enc0 - enc0_prev) * self.circumference #/ self.ticks
+			# distance the right wheel travelled
+			dL = (enc1 - enc1_prev) * self.circumference #/ self.ticks
+			
+			# angle of the leg from the hall sensors (this should be changed later to the leg angle ecoder data I guess)
+			self.fi += 1/self.wheel_dist * (dR - dL)
+			
+			fi_deg = self.fi/np.pi*180
+
+			#print("calculated heading angles: {}".format(fi_deg))
+			
+			
+			# current position calculated from the hall data 
+			self.current_pos.x = self.current_pos.x + 1/2 * (dR + dL) * np.cos(self.fi)
+			self.current_pos.y = self.current_pos.y + 1/2 * (dR + dL) * np.sin(self.fi)
+			
+			#store pos
+			self.pos_x_list.append(self.current_pos.x)
+			self.pos_y_list.append(self.current_pos.y)
+			
+			#print("current x: {} m".format(self.current_pos.x))
+			#print("current y: {} m".format(self.current_pos.y))
+			
+			# current position difference
+			dx = desired_x - self.current_pos.x
+			dy = desired_y - self.current_pos.y
+			
+			#distance travelled ion this time step
+			distx = self.current_pos.x - x_prev
+			disty = self.current_pos.y - y_prev
+			
+			time_now = rospy.get_time()
+			d_time = time_now - time_prev
+			time_prev = time_now
+			# leg velocity calculation
+			self.current_vel.x = distx / d_time #dt
+			self.current_vel.y = disty / d_time #dt
+			
+			
+			#print("dx: {} m".format(dx))
+			#print("dy: {} m".format(dy))
+			print("distance: {}".format(np.sqrt(dx**2+dy**2)))
+
+			# -180/180 orientation fixing
+			desired_angle = math.atan2(dy, dx)
+			if abs(desired_angle + 2 * np.pi - self.fi) < abs(desired_angle - self.fi):
+				desired_angle += 2 * np.pi
+
+			# error
+			e_angle = desired_angle - self.fi
+			ed_angle = (e_angle - e_prev_angle) / d_time #dt
+			ei_angle = ei_angle + e_angle*dt
+			
+			#print("desired angle {}".format(math.atan2(dy, dx)))
+			#print("current angle {}".format(self.fi))
+			
+			# PID equation
+			fi_dot = Kp_a*e_angle + Ki_a* ei_angle + Kd_a * ed_angle
+			
+			
+			# next input velocity calculation
+			vel0 = avg_vel + 1/2 * self.wheel_dist * fi_dot
+			vel1 = avg_vel - 1/2 * self.wheel_dist * fi_dot
+			     
+                  
+			# limit the input velocities
+			vel0 = max(min(vel0, max_vel), -max_vel)
+			vel1 = max(min(vel1, max_vel), -max_vel)
+
+
+			if np.sqrt((dx)**2 + (dy)**2) < 0.3:
+				vel0 = vel0 * 0.5
+				vel1 = vel1 * 0.5
+			
+			wheelR_vel = self.getVel0()	
+			wheelR_acc = (wheelR_vel - wheelR_vel_prev) / d_time #dt
+			wheelR_vel_prev = wheelR_vel
+			torqueR = self.getTorque0()
+			
+			wheelL_vel = self.getVel1()	
+			wheelL_acc = (wheelL_vel - wheelL_vel_prev) / d_time #dt
+			wheelL_vel_prev = wheelL_vel
+			torqueL = self.getTorque1()
+			
+			####################################
+			# check whether there is a bumper or not
+			if abs(torqueL) > 60 and dL == 0.0 and not bumper_L:
+				bumper_L = True
+				enc_start_L = self.getEncoder1()
+				# switch to torque controller
+				self.setTorque_control_mode1()
+				torque1 = self.getTorque1()
+				
+			if abs(torqueR) > 60 and dR == 0.0 and not bumper_R:
+				bumper_R = True
+				enc_start_R = self.getEncoder0()
+				# switch to torque controller
+				self.setTorque_control_mode0()
+				torque0 = self.getTorque0()
+				
+			if bumper_L == False and bumper_R == False:
+				# set the new input velocities
+				self.setVel0(vel0)
+				self.setVel1(vel1)
+				control_mode_R = 1
+				control_mode_L = 1
+			else:
+				if bumper_R == True and bumper_L == True:
+					#print("TORQUE CONTROL R")
+					# calculate travelled distance by the wheel
+					d_trav_R = (self.getEncoder0() - enc_start_R) * self.circumference
+					# if right wheel gets over the bumper then stop
+					#if (abs(wheelR_acc) > acc_treshold and abs(self.getVel0()) > vel_thresh) or breakingR or abs(d_trav_R) > travel_threshold :
+					if breakingR or abs(d_trav_R) > travel_threshold:
+						breakingR = True
+						
+						self.setTorque0(-self.getTorque0())
+						#print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 2
+						
+						if self.getVel0() < 0.3:	
+							breakingR = False
+							self.setVelocity_control_mode0()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							bumper_R = False
+					
+					# calculate travelled distance by the wheel
+					d_trav_L = (self.getEncoder1() - enc_start_L) * self.circumference	
+					# if lefty wheel gets over the bumper then stop
+					#if (abs(wheelL_acc) > acc_treshold and abs(self.getVel1()) > vel_thresh) or breakingL or abs(d_trav_R) > travel_threshold:
+					if breakingL or abs(d_trav_R) > travel_threshold:
+						
+						breakingL = True
+						
+						self.setTorque1(-self.getTorque1())
+						#print("BREAK")
+						control_mode_R = 2
+						control_mode_L = 3
+						
+						if self.getVel1() < 0.3:	
+							breakingL = False
+							self.setVelocity_control_mode1()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_L = False
+							
+					else:
+
+						
+						
+						# check the direction
+						if torque0 > 0:
+							torque0 += 10 
+						else:
+							torque0 -= 10 
+						
+						if torque1 > 0:
+							torque1 += 10 
+						else:
+							torque1 -= 10 
+							
+						#limit input torque
+						# limit the input velocities
+						torque0 = max(min(torque0, self.torque_lim), -self.torque_lim)
+						torque1 = max(min(torque1, self.torque_lim), -self.torque_lim)
+						
+							
+						# set the new input velocities
+						self.setTorque0(torque0) # vel0
+						self.setTorque1(torque1) #vel1
+						control_mode_R = 2
+						control_mode_L = 2
+					
+				#-----------------------------------------------------------------------
+				
+				elif bumper_R == True:
+					self.setTorque_control_mode0()
+					#print("bumper R")
+					# calculate travelled distance by the wheel
+					d_trav_R = (self.getEncoder0() - enc_start_R) * self.circumference
+					# if right wheel gets over the bumper then stop
+					
+					#if (abs(wheelR_acc) > acc_treshold and abs(self.getVel0()) > vel_thresh) or breakingR or abs(d_trav_R) > travel_threshold:
+					if abs(d_trav_R) > travel_threshold:
+						
+						breakingR = True
+						
+						
+						#print("BREAK")
+						control_mode_R = 3
+						control_mode_L = 1
+						
+						if self.getVel0() < 0.3:	
+							breakingR = False
+							self.setVelocity_control_mode0()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_R = False
+						else:
+							self.setTorque0(-self.getTorque0())
+							
+						
+						
+					else:	
+						
+						# check the direction
+						if torque0 > 0:
+							torque0 += 10 
+						else:
+							torque0 -= 10 
+							
+						print(torque0)
+						# limit the input torque
+						torque0 = max(min(torque0, self.torque_lim), -self.torque_lim)
+						print("after lim")
+						print(torque0)
+						print(self.getTorque0())
+						print(self.getCurrentSetP0())
+						
+						self.setTorque0(torque0)
+						self.setVel1(vel1) #vel1
+						control_mode_R = 2
+						control_mode_L = 1
+							
+				#------------------------------------------------------------------	
+
+				elif bumper_L == True:
+					#print("bumper L")
+					# calculate travelled distance by the wheel
+					d_trav_L = (self.getEncoder1() - enc_start_L) * self.circumference	
+					# if right wheel gets over the bumper then stop
+					#if (abs(wheelL_acc) > acc_treshold and abs(self.getVel1()) > vel_thresh) or breakingL or abs(d_trav_L) > travel_threshold:
+					if breakingL or abs(d_trav_L) > travel_threshold:
+						breakingL = True
+						
+						#print("BREAK")
+						control_mode_R = 1
+						control_mode_L = 3
+						
+						if self.getVel1() < 0.3:	
+							breakingL = False
+							self.setVelocity_control_mode1()
+							vel0 = 0
+							vel1 = 0
+							self.setVel0(vel0)
+							self.setVel1(vel1)
+							bumper_L = False
+						else:
+							self.setTorque1(-self.getTorque1())
+						
+					
+					else:
+						
+						# check the direction
+						if torque1 > 0:
+							torque1 += 10 
+						else:
+							torque1 -= 10 
+							
+						# limit the input torque
+						torque1 = max(min(torque1, self.torque_lim), -self.torque_lim) 
+						
+						self.setVel0(vel0) # vel0
+						self.setTorque1(torque1)
+						control_mode_L = 2
+						control_mode_R = 1
+				
+			
+			#############################################3
+				
+			
+			
+			# set the new input velocities
+			#self.setVel0(vel0)
+			#self.setVel1(vel1)
+			
+			#Update
+			e_prev_angle = e_angle
+			#e_prev_pos = e_pos
+			enc0_prev = enc0
+			enc1_prev = enc1
+			x_prev = self.current_pos.x
+			y_prev = self.current_pos.y
+			
+			# publish data
+			self.pub_pos.publish(self.current_pos)
+			self.pub_vel.publish(self.current_vel)
+			self.pub_ha.publish(self.fi)
+			self.pub_des_ha.publish(math.atan2(dy, dx))
+			self.pub_torque_R.publish(self.getTorque0()/self.torque_constant)
+			self.pub_torque_L.publish(self.getTorque1()/self.torque_constant)
+			self.pub_vel_R.publish(self.getVel0())
+			self.pub_vel_L.publish(self.getVel1())
+			self.pub_acc_R.publish(wheelR_acc)
+			self.pub_acc_L.publish(wheelL_acc)
+			self.pub_R_enc.publish(enc0)
+			self.pub_L_enc.publish(enc1)
+			self.pub_des_vel_L.publish(vel1)
+			self.pub_des_vel_R.publish(vel0)
+			self.pub_current_set_L.publish(self.getCurrentSetP1())
+			self.pub_current_set_R.publish(self.getCurrentSetP0())
+			self.cont_mode_L.publish(control_mode_L)
+			self.cont_mode_R.publish(control_mode_R)
+  			
+			#time.sleep(dt)
+			
+		
+		# STOP
+		self.setVel0(0)
+		self.setVel1(0)
+		
+		print("FINISHED")
+		print("current x pos: {}".format(self.current_pos.x))
+		print("current y pos: {}".format(self.current_pos.y))
 		
 
 

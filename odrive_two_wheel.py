@@ -25,21 +25,26 @@ if __name__ == '__main__':
 	#my_odrive.straight_position_control(desired_pos)
 	
 	
-	desired_x = 1
+	desired_x = 1.0
 	desired_y = 0.0
 	
 	desired_pos_x_list = [1.0, 1.0, 0.0, 0.0] #[0.25, 0.5, 0.50, 0.5, 0,25, 0.0, 0.00, 0.0]
-	desired_pos_y_list = [0.0, 0.7, 0.7, 0.0] #[0.00, 0.0, 0.25, 0.5, 0,50, 0.5, 0.25, 0.0]
+	desired_pos_y_list = [0.0, 0.6, 0.6, 0.0] #[0.00, 0.0, 0.25, 0.5, 0,50, 0.5, 0.25, 0.0]
 	desired_angle_list = [90/180*np.pi, np.pi, 270/180*np.pi, 2*np.pi]
 	
 	"""for i in range(len(desired_pos_x_list)):
-		my_odrive.diff_drive_control(desired_pos_x_list[i], desired_pos_y_list[i])
+		#my_odrive.diff_drive_control(desired_pos_x_list[i], desired_pos_y_list[i])
+		my_odrive.rough_terrain_control(desired_pos_x_list[i], desired_pos_y_list[i])
 		#my_odrive.heading_angle_control(desired_angle_list[i])
 		time.sleep(2)"""
 	
+	#my_odrive.rough_terrain_hibrid_control(desired_x, desired_y)
+	
 	#my_odrive.diff_drive_control(desired_x, desired_y)
 	
-	my_odrive.rough_terrain_control(desired_x, desired_y)
+	#my_odrive.rough_terrain_control_2(desired_x, desired_y)
+	
+	my_odrive.diff_drive_torque_control(desired_x, desired_y)
 	
 	########
 	#my_odrive.pos_control(1.0)
@@ -74,7 +79,7 @@ if __name__ == '__main__':
 	bag.write('position_x', my_odrive.pos_x_list)
 	bag.write('position_y', my_odrive.pos_y_list)
 	
-	bag.close()"""		
+	bag.close()		
 	
 	file1 = open("pos_data_x.txt", "w")
 	for x in  my_odrive.pos_x_list:
@@ -85,8 +90,13 @@ if __name__ == '__main__':
 	for y in  my_odrive.pos_y_list:
 		file2.write(str(y) + "\n")
 		
-	file2.close
+	file2.close"""
 	
+	my_odrive.setIdle()
+	
+	print("now you can move your robot freely!")
+	
+	input("Press enter to finish!!")
 	
 	my_odrive.reboot()
 
